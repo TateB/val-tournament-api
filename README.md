@@ -1,2 +1,2 @@
 # val-tournament-api
-valorant tournament api for twitch manager core
+valorant tournament signalling api for twitch manager core
