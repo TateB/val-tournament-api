@@ -15,5 +15,9 @@
   "bugs": {
     "url": "https://github.com/TateB/val-tournament-api/issues"
   },
-  "homepage": "https://github.com/TateB/val-tournament-api#readme"
+  "homepage": "https://github.com/TateB/val-tournament-api#readme",
+  "dependencies": {
+    "uuid": "^8.3.2",
+    "ws": "^8.0.0"
+  }
 }

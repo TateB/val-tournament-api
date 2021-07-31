@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+  <title>WebSocket Testing</title>
+  <meta charset="utf-8">
+  <link href="chat.css" rel="stylesheet">
+  <script type="text/javascript" src="simplepeer.min.js"></script>
+  <script type="text/javascript" src="chatclient.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="infobox">
+    <input type="text" placeholder="Room ID" id="roomID" />
+    <input type="text" placeholder="Text to send" id="sendText" />
+    <input type="submit" onclick="connect()" value="Connect" />
+    <input type="submit" onclick="send()" value="Send text" />
+  </div>
+</body>
+</html>
