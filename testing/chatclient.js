@@ -1,5 +1,6 @@
 var roomID;
 var isOBS;
+var obsPeer;
 
 window.location.pathname === "/testing/obs.html" ? isOBS = true : isOBS = false;
 
@@ -11,33 +12,20 @@ if (isOBS) {
   websocket.onclose = function(evt) { onClose(evt) };
   websocket.onmessage = function(evt) { onMessageOBS(evt) };
   websocket.onerror = function(evt) { onError(evt) };
-
-  console.log("connecting as ID:", roomID)
-  const p = new SimplePeer({
-    channelName: roomID,
-    initiator: false,
-    trickle: false
-  })
-  
-  p.on("signal", data => {
-    console.log("got signal")
-
-    websocket.send(JSON.stringify(data))
-  })
-
-  p.on('connect', data => {
-    console.log("Connected!")
-  })
-
-  p.on('data', data => {
-    const stringData = data.toString()
-    console.log("got data!", data.toString())
-    document.getElementById("inside").innerHTML += "<h2>" + stringData + "</h2>"
-  })
+  obsPeer = new connectOBS(websocket)
 
   async function onMessageOBS(event) {
-    let signalObj = await event.data.text().then((text) => JSON.parse(text))
-    p.signal(signalObj)
+    console.log("got signal")
+    console.log(event.data)
+    if (event.data instanceof Blob) {
+      console.log("was blob, can signal")
+      console.log(obsPeer)
+      let signalObj = await event.data.text().then((text) => JSON.parse(text))
+      obsPeer.signal(signalObj) // this is not working for second connection
+    } else {
+      console.log("destroying")
+      obsPeer.destroy()
+    }
   }
 }
 
@@ -78,9 +66,44 @@ function connect() {
   }
 }
 
-function connectOBS() {
-  roomID = window.location.hash.substring(1)
+
+function connectOBS(websocket) {
+  console.log("connecting as ID:", roomID)
+  var p = new SimplePeer({
+    channelName: roomID,
+    initiator: false,
+    trickle: false
+  })
+
+  p._debug = console.log
   
+  p.on("signal", data => {
+    console.log("got signal", data)
+
+    const sentSocket = websocket.send(JSON.stringify(data))
+    console.log("Sent socket for signal:", sentSocket)
+  })
+
+  p.on('connect', data => {
+    console.log("Connected!")
+  })
+
+  p.on('data', data => {
+    const stringData = data.toString()
+    console.log("got data!", data.toString())
+    document.getElementById("inside").innerHTML += "<h2>" + stringData + "</h2>"
+  })
+
+  p.on('close', data => {
+    console.log("connection closed")
+    console.log()
+    p.removeAllListeners();
+    console.log("reconnecting")
+    obsPeer = null;
+    obsPeer = new connectOBS(websocket)
+  })
+
+  return p
 }
 
 var send = () => {}
