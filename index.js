@@ -1,5 +1,6 @@
 var WebSocketServer = require('ws').Server
 var wss = new WebSocketServer({ port: 6503 })
+const util = require("util")
 
 if (wss) {
     console.log("server online")
@@ -38,42 +39,54 @@ wss.on('connection', (ws, req) => {
     const sendAsJSON = (sendto, obj) => sendto.send(JSON.stringify(obj))
 
     // Check if room exists and create/add current connection OR kick user since procotol exists in room
-    if (currentRoom(roomID) && currentRoom(roomID).connections.find(x => x.protocol === ws.protocol)) {
+    if (currentRoom(roomID) && currentRoom(roomID).connections.find(x => x.protocol === ws.protocol) != undefined) {
+        console.log(currentRoom(roomID).connections.find(x => x.protocol === ws.protocol))
+        console.log("Protocol already in use:", ws.protocol)
         sendAsJSON(ws, { error: true, errorMessage: "Protocol already in use!" })
         ws.terminate()
     } else if (!currentRoom(roomID)) {
+        console.log("Pushing new room for:", ws.protocol)
         rooms.push(new Room(roomID))
     }
-    
-    // Index of current connection
-    const index = currentRoom().connections.push(ws) - 1
+
+    if (ws.protocol === "UI") {
+        currentRoom().UI = ws
+    } else {
+        currentRoom().connections.push(ws)
+    }
 
     // Send offer if UI room already exists + added offer
     const offerToSend = getOffer(ws.protocol)
-    if (matchingUI() && offerToSend) {
+    if (matchingUI() && offerToSend && ws.protocol !== "UI") {
         console.log("Found UI waiting for response")
-        ws.send(offerToSend.offer)
-    } else if (matchingUI()) {
+        sendAsJSON(ws, offerToSend.offer)
+    } else if (matchingUI() && ws.protocol !== "UI") {
+        console.log("there was no offer available for:", ws.protocol)
         sendAsJSON(ws, { error: true, errorMessage: "There was no available offer for this protocol." })
     }
 
     ws.on("message", (data) => {
+        let msgObj = JSON.parse(data.toString())
         if (ws.protocol === "UI") {
             // If is UI, either send offer to connection, or store offer in offers
-            const connWanted = getConnection(data.protocol)
-            connWanted ? connWanted.send(data.offer) : currentRoom().offers.push(data)
+            console.log("sending msg as UI to:", msgObj.protocol)
+            const connWanted = getConnection(msgObj.protocol)
+            connWanted ? sendAsJSON(connWanted, msgObj.offer) : currentRoom().offers.push(msgObj)
         } else {
             // If protocol isn't UI, send offer to UI
-            matchingUI().send(data)
+            console.log("sending msg as " + ws.protocol + " to UI")
+            sendAsJSON(matchingUI(), msgObj)
         }
     }) 
 
     ws.on("close", () => {
         if (getConnection(ws.protocol) === ws) {
+            console.log("Notifying and removing", ws.protocol)
             // If on connection close, WS is known connection, notify UI and remove connection from connections
             sendAsJSON(matchingUI(), { closed: true, protocol: ws.protocol })
             currentRoom().connections = currentRoom().connections.filter(x => x !== ws)
         } else if (ws.protocol === "UI") {
+            console.log("UI Connection closed")
             // If connection close is UI, inform all connections of disconnect 
             for (connection of currentRoom().connections) {
                 sendAsJSON(connection, { closed: true })
