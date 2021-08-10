@@ -46,7 +46,8 @@ wss.on("connection", (ws, req) => {
   const getOffer = (protocol) =>
     currentRoom().offers.find((x) => x.protocol === protocol);
   const matchingUI = () => currentRoom().UI;
-  const sendAsJSON = (sendto, obj) => sendto.send(JSON.stringify(obj));
+  const sendAsJSON = (sendto, obj) =>
+    sento === null ? undefined : sendto.send(JSON.stringify(obj));
 
   // Check if room exists and create/add current connection OR kick user since procotol exists in room
   if (
