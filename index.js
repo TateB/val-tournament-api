@@ -2,8 +2,16 @@ var WebSocketServer = require("ws").Server;
 var wss = new WebSocketServer({ port: 6503 });
 const util = require("util");
 
+const dateStr = () =>
+  new Date().toISOString().replace(/T/, " ").replace(/\..+/, "");
+function systemLog(logInput) {
+  console.log(
+    `\x1b[90m[\x1b[31m${dateStr()}\x1b[90m][\x1b[91mSystem\x1b[90m]\x1b[0m: ${logInput}`
+  );
+}
+
 if (wss) {
-  console.log("server online");
+  systemLog("Server online.");
 }
 
 var rooms = [];
@@ -32,10 +40,31 @@ wss.on("connection", (ws, req) => {
   ws.isAlive = true;
   ws.on("pong", heartbeat);
   const roomID = new URLSearchParams(req.url.substr(1)).get("roomID");
-  console.log("got connection to:", roomID, ws.protocol);
+
+  function connCommandLog(logInput) {
+    console.log(
+      `\x1b[90m[\x1b[31m${dateStr()}\x1b[90m][\x1b[92m${roomID.substr(
+        0,
+        8
+      )}\x1b[90m][\x1b[93m${ws.protocol}\x1b[90m]\x1b[0m: ${logInput}`
+    );
+  }
+  function roomCommandLog(logInput) {
+    console.log(
+      `\x1b[90m[\x1b[31m${dateStr()}\x1b[90m][\x1b[92m${roomID.substr(
+        0,
+        8
+      )}\x1b[90m]\x1b[0m: ${logInput}`
+    );
+  }
+
+  systemLog("Connection request recieved.");
 
   // If no roomID or protocol provided, terminate connection
   if (!roomID || !ws.protocol) {
+    systemLog(
+      `RoomID or protocol not provided, terminating new connection. (room: ${roomID}, protocol: ${ws.protocol}`
+    );
     ws.send({ error: true, errorMessage: "Protocol already in use!" });
     ws.terminate();
   }
@@ -55,14 +84,13 @@ wss.on("connection", (ws, req) => {
     currentRoom(roomID).connections.find((x) => x.protocol === ws.protocol) !=
       undefined
   ) {
-    console.log(
-      currentRoom(roomID).connections.find((x) => x.protocol === ws.protocol)
+    roomCommandLog(
+      `Connection already exists for ${ws.protocol}, terminating new connection.`
     );
-    console.log("Protocol already in use:", ws.protocol);
     sendAsJSON(ws, { error: true, errorMessage: "Protocol already in use!" });
     ws.terminate();
   } else if (!currentRoom(roomID)) {
-    console.log("Pushing new room for:", ws.protocol);
+    roomCommandLog("Fresh roomID, creating room object.");
     rooms.push(new Room(roomID));
   }
 
@@ -75,10 +103,10 @@ wss.on("connection", (ws, req) => {
   // Send offer if UI room already exists + added offer
   const offerToSend = getOffer(ws.protocol);
   if (matchingUI() && offerToSend && ws.protocol !== "UI") {
-    console.log("Found UI waiting for response");
+    connCommandLog("Found matching UI offer, awaiting response.");
     sendAsJSON(ws, offerToSend.offer);
   } else if (matchingUI() && ws.protocol !== "UI") {
-    console.log("there was no offer available for:", ws.protocol);
+    connCommandLog("No matching offer was found.");
     sendAsJSON(ws, {
       error: true,
       errorMessage: "There was no available offer for this protocol.",
@@ -87,45 +115,75 @@ wss.on("connection", (ws, req) => {
 
   ws.on("message", (data) => {
     let msgObj = JSON.parse(data.toString());
+    if (msgObj.reset) {
+      roomCommandLog(
+        "Reset request recieved, forcing offer regeneration from all connections."
+      );
+      for (connection of currentRoom().connections) {
+        sendAsJSON(connection, { closed: true });
+        sendAsJSON(ws, { closed: true, protocol: ws.protocol });
+      }
+    }
     if (ws.protocol === "UI") {
       // If is UI, either send offer to connection, or store offer in offers
-      console.log("sending msg as UI to:", msgObj.protocol);
+      connCommandLog(
+        `Recieved generated offer for ${msgObj.protocol}, sending to match or adding to store.`
+      );
       const connWanted = getConnection(msgObj.protocol);
       connWanted
         ? sendAsJSON(connWanted, msgObj.offer)
         : currentRoom().offers.push(msgObj);
     } else {
       // If protocol isn't UI, send offer to UI
-      console.log("sending msg as " + ws.protocol + " to UI");
+      connCommandLog("Recieved generated offer, sending to UI.");
       sendAsJSON(matchingUI(), msgObj);
     }
   });
 
-  const interval = setInterval(function ping() {
-    if (ws.isAlive === false) return ws.terminate();
-
+  // Heartbeat interval for checking connection
+  ws.interval = setInterval(function ping() {
+    // If pong hasn't returned after 70 seconds, terminate connection and remove from room
+    if (!ws.isAlive) {
+      clearInterval(ws.interval);
+      ws.protocol === "UI"
+        ? closeUIConnection("no_heartbeat")
+        : closeConnection("no_heartbeat");
+      return ws.terminate();
+    }
     ws.isAlive = false;
     ws.ping(noop);
-  }, 30000);
+  }, 70000);
 
   ws.on("close", () => {
-    clearInterval(interval);
-    if (getConnection(ws.protocol) === ws) {
-      console.log("Notifying and removing", ws.protocol);
-      // If on connection close, WS is known connection, notify UI and remove connection from connections
-      sendAsJSON(matchingUI(), { closed: true, protocol: ws.protocol });
-      currentRoom().connections = currentRoom().connections.filter(
-        (x) => x !== ws
-      );
-    } else if (ws.protocol === "UI") {
-      console.log("UI Connection closed");
-      // If connection close is UI, inform all connections of disconnect
-      for (connection of currentRoom().connections) {
-        sendAsJSON(connection, { closed: true });
-      }
-      // Clear current room of UI and offers
-      currentRoom().UI = null;
-      currentRoom().offers = [];
-    }
+    clearInterval(ws.interval);
+    ws.protocol === "UI"
+      ? closeUIConnection("app_exit")
+      : closeConnection("app_exit");
   });
+
+  // Function for closing connections. Logs, notifies UI, and removes connection from room.
+  function closeConnection(errMsg = "") {
+    connCommandLog(
+      `Connection closed, notifying UI and removing. (msg: ${errMsg})`
+    );
+    // If on connection close, WS is known connection, notify UI and remove connection from connections
+    sendAsJSON(matchingUI(), { closed: true, protocol: ws.protocol });
+    currentRoom().connections = currentRoom().connections.filter(
+      (x) => x !== ws
+    );
+  }
+
+  // Function for closing UI connection. Logs, notifies room connections, and clears room.
+  function closeUIConnection(errMsg = "") {
+    connCommandLog(
+      `Connection closed, notifying connections and clearing room. (msg: ${errMsg}`
+    );
+    // If connection close is UI, inform all connections of disconnect
+    for (connection of currentRoom().connections) {
+      sendAsJSON(connection, { closed: true });
+    }
+    // Clear current room of UI and offers
+    currentRoom().UI = null;
+    currentRoom().offers = [];
+  }
 });
