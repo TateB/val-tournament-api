@@ -31,10 +31,9 @@ function Room(roomID) {
 }
 
 function heartbeat() {
+  console.log("heartbeat recieved");
   this.isAlive = true;
 }
-
-function noop() {}
 
 wss.on("connection", (ws, req) => {
   ws.isAlive = true;
@@ -63,7 +62,7 @@ wss.on("connection", (ws, req) => {
   // If no roomID or protocol provided, terminate connection
   if (!roomID || !ws.protocol) {
     systemLog(
-      `RoomID or protocol not provided, terminating new connection. (room: ${roomID}, protocol: ${ws.protocol}`
+      `RoomID or protocol not provided, terminating new connection. (room: ${roomID}, protocol: ${ws.protocol})`
     );
     ws.send({ error: true, errorMessage: "Protocol already in use!" });
     ws.terminate();
@@ -144,21 +143,16 @@ wss.on("connection", (ws, req) => {
   ws.interval = setInterval(function ping() {
     // If pong hasn't returned after 70 seconds, terminate connection and remove from room
     if (!ws.isAlive) {
-      clearInterval(ws.interval);
-      ws.protocol === "UI"
-        ? closeUIConnection("no_heartbeat")
-        : closeConnection("no_heartbeat");
       return ws.terminate();
     }
     ws.isAlive = false;
-    ws.ping(noop);
-  }, 70000);
+    ws.ping();
+  }, 30000);
 
-  ws.on("close", () => {
+  ws.on("close", (code, reason) => {
     clearInterval(ws.interval);
-    ws.protocol === "UI"
-      ? closeUIConnection("app_exit")
-      : closeConnection("app_exit");
+    console.log(code, reason.toString());
+    ws.protocol === "UI" ? closeUIConnection(reason) : closeConnection(reason);
   });
 
   // Function for closing connections. Logs, notifies UI, and removes connection from room.
@@ -176,7 +170,7 @@ wss.on("connection", (ws, req) => {
   // Function for closing UI connection. Logs, notifies room connections, and clears room.
   function closeUIConnection(errMsg = "") {
     connCommandLog(
-      `Connection closed, notifying connections and clearing room. (msg: ${errMsg}`
+      `Connection closed, notifying connections and clearing room. (msg: ${errMsg})`
     );
     // If connection close is UI, inform all connections of disconnect
     for (connection of currentRoom().connections) {
