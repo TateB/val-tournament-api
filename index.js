@@ -31,7 +31,6 @@ function Room(roomID) {
 }
 
 function heartbeat() {
-  console.log("heartbeat recieved");
   this.isAlive = true;
 }
 
@@ -143,6 +142,7 @@ wss.on("connection", (ws, req) => {
   ws.interval = setInterval(function ping() {
     // If pong hasn't returned after 70 seconds, terminate connection and remove from room
     if (!ws.isAlive) {
+      connCommandLog("Heartbeat not recieved.");
       return ws.terminate();
     }
     ws.isAlive = false;
@@ -151,8 +151,9 @@ wss.on("connection", (ws, req) => {
 
   ws.on("close", (code, reason) => {
     clearInterval(ws.interval);
-    console.log(code, reason.toString());
-    ws.protocol === "UI" ? closeUIConnection(reason) : closeConnection(reason);
+    ws.protocol === "UI"
+      ? closeUIConnection(reason.toString())
+      : closeConnection(reason.toString());
   });
 
   // Function for closing connections. Logs, notifies UI, and removes connection from room.
